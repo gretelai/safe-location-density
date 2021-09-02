@@ -1,0 +1,6 @@
+pandas
+h3pandas==0.2.2
+geopandas
+jupyter
+requests
+import folium
