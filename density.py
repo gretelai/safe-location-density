@@ -92,7 +92,7 @@ class DensityTransform:
     _lng_col: str = None
     _polygon_cache: dict
     _is_fit: bool = False
-    _resolution: H3Resolution
+    _resolution: H3Resolution = None
 
     def __init__(
         self,
