@@ -5,7 +5,8 @@ preserving location densities
 import re
 from functools import wraps
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from typing import Optional
 
 import pandas as pd
 import h3pandas  # noqa
@@ -20,6 +21,7 @@ GEO = "geometry"
 LAT = "lat"
 LNG = "lng"
 MODES = [AGG, EXTRAP]
+DEFAULT_ID_SUFFIX = "_unique_count"
 H3_RE = re.compile(r"^h3_\d{2}$")
 
 
@@ -83,11 +85,15 @@ class H3Resolution:
         area, edge_len = _resolution_values[res]
         return cls(resolution=res, area_km2=area, avg_edge_len_km=edge_len)
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+
 
 class DensityTransform:
 
     _input_df: pd.DataFrame
     _id_col: str
+    _id_col_new: str
     _lat_col: str = None
     _lng_col: str = None
     _polygon_cache: dict
@@ -146,13 +152,13 @@ class DensityTransform:
 
     @_needs_fit
     def transform(
-        self, *, mode: str = AGG
+        self, *, mode: str = AGG, id_col_suffix: Optional[str] = DEFAULT_ID_SUFFIX  # noqa
     ) -> pd.DataFrame:
         if mode == AGG:
-            return self._transform_agg()
+            return self._transform_agg(id_col_suffix=id_col_suffix)
 
     @_needs_fit
-    def transform_plot(self, *, mode: str = AGG) -> folium.Map:
+    def transform_plot(self, *, mode: str = AGG, bins: int = 6) -> folium.Map:
         if mode == AGG:
             agg_df = self._transform_agg(restore_geo=True)
             geo_df = GeoDataFrame(agg_df)
@@ -164,20 +170,35 @@ class DensityTransform:
             c = Choropleth(
                 geo_data=geo_df,
                 data=geo_df,
-                columns=[random_col, self._id_col],
+                columns=[random_col, self._id_col_new],
                 key_on=f"feature.properties.{random_col}",
                 legend_name=f"Unique count of: {self._id_col}",
+                bins=bins,
             )
             c.add_to(_map)
             return _map
+        else:
+            raise ValueError("Other modes not supported yet")
 
-    def _transform_agg(self, restore_geo: bool = False) -> pd.DataFrame:
+    def _transform_agg(
+        self,
+        restore_geo: bool = False,
+        id_col_suffix: Optional[str] = DEFAULT_ID_SUFFIX,  # noqa
+    ) -> pd.DataFrame:
+        # At this point, we are grouping by the Hex centroids
         _group_by = [self._lat_col, self._lng_col]
+        self._id_col_new = self._id_col
         agg_df = (
             self._input_df.groupby(_group_by)
             .agg({self._id_col: "nunique"})
             .reset_index()
         )
+        if isinstance(id_col_suffix, str):
+            new_id_col = self._id_col + id_col_suffix
+            agg_df = agg_df.rename(
+                columns={self._id_col: new_id_col}
+            )  # noqa
+            self._id_col_new = new_id_col
 
         # restore the Polygon objects if needed
         if restore_geo:
